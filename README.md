@@ -1,1 +1,1 @@
-Baru belajar bikin login ke db aja n
+Sekarang service ini udah bisa serve CMS sederhana
