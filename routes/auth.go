@@ -2,12 +2,14 @@ package routes
 
 import (
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/fardilk/cms-porto-fardil/config"
 	"github.com/fardilk/cms-porto-fardil/models"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
+	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
 
@@ -19,7 +21,7 @@ func Dashboard(c *gin.Context) {
 		return
 	}
 
-	secret := []byte("your_secret_key") // Use env var in production
+	secret := config.JWTSecret()
 	claims := jwt.MapClaims{}
 	_, err = jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
 		return secret, nil
@@ -71,7 +73,7 @@ func Login(c *gin.Context) {
 		return
 	}
 
-	if user.Password != req.Password {
+	if !checkPassword(&user, req.Password) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
 		return
 	}
@@ -84,7 +86,14 @@ func Login(c *gin.Context) {
 	}
 
 	// Set JWT as HTTP-only cookie
-	c.SetCookie("jwt", token, 3600*24, "", "", false, true) // 1 day, HTTP-only
+	// Secure in production; the CMS runs on a different subdomain, so the cookie
+	// has to be SameSite=None, which browsers only accept together with Secure.
+	if config.IsProduction() {
+		c.SetSameSite(http.SameSiteNoneMode)
+	} else {
+		c.SetSameSite(http.SameSiteLaxMode)
+	}
+	c.SetCookie("jwt", token, 3600*24, "/", config.CookieDomain(), config.IsProduction(), true)
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Login successful",
@@ -100,7 +109,7 @@ func Login(c *gin.Context) {
 
 // generateJWT creates a JWT token for the authenticated user
 func generateJWT(user models.User) (string, error) {
-	secret := []byte("your_secret_key") // Replace with env var in production
+	secret := config.JWTSecret()
 	claims := jwt.MapClaims{
 		"user_id":  user.ID,
 		"username": user.Username,
@@ -118,7 +127,7 @@ func Me(c *gin.Context) {
 		return
 	}
 
-	secret := []byte("your_secret_key")
+	secret := config.JWTSecret()
 	claims := jwt.MapClaims{}
 	_, err = jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
 		return secret, nil
@@ -141,4 +150,25 @@ func Me(c *gin.Context) {
 			"username": username,
 		},
 	})
+}
+
+// checkPassword verifies req against the stored value. Passwords used to be
+// stored and compared in plain text; anything that is not a bcrypt hash is
+// treated as a legacy plaintext record, verified once and then rehashed in
+// place so no existing account is locked out.
+//
+// TODO: drop the legacy branch once every row has been migrated.
+func checkPassword(user *models.User, candidate string) bool {
+	if strings.HasPrefix(user.Password, "$2") {
+		return bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(candidate)) == nil
+	}
+	if user.Password != candidate {
+		return false
+	}
+	hashed, err := bcrypt.GenerateFromPassword([]byte(candidate), bcrypt.DefaultCost)
+	if err != nil {
+		return true
+	}
+	config.DB.Model(user).Update("password", string(hashed))
+	return true
 }

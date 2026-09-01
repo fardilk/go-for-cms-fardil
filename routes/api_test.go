@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
 	"github.com/fardilk/cms-porto-fardil/config"
@@ -76,11 +76,14 @@ func TestGetTags(t *testing.T) {
 }
 
 func TestMain(m *testing.M) {
-	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	if err != nil {
+		panic(err)
+	}
 	config.DB = db
 	// Migrate models
 	db.AutoMigrate(&models.Article{}, &models.Tag{}, &models.Category{}, &models.User{})
 	// Delete Articles
 	// db.Exec("DELETE FROM articles")
-    m.Run()
+	m.Run()
 }

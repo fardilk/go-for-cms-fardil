@@ -1,7 +1,11 @@
 package main
 
 import (
+	"log"
+	"os"
+
 	"github.com/fardilk/cms-porto-fardil/config"
+	"github.com/fardilk/cms-porto-fardil/middleware"
 	"github.com/fardilk/cms-porto-fardil/models"
 	"github.com/fardilk/cms-porto-fardil/routes"
 	"github.com/fardilk/cms-porto-fardil/seed"
@@ -10,10 +14,8 @@ import (
 )
 
 func main() {
-	// Init DB
 	config.InitDB()
 
-	// Auto migrate user table
 	config.DB.AutoMigrate(
 		&models.User{},
 		&models.Author{},
@@ -21,67 +23,93 @@ func main() {
 		&models.Tag{},
 		&models.Status{},
 		&models.Article{},
+		&models.MediaAsset{},
+		&models.Service{},
+		&models.ServiceHighlight{},
+		&models.ServiceStep{},
+		&models.ServiceOutcome{},
+		&models.ServiceMetric{},
+		&models.ServiceFaq{},
+		&models.ServicePlan{},
+		&models.ServiceProof{},
+		&models.ServiceSchedule{},
 	)
 
-	// Migrate all models
 	models.Migrate()
 
-	// Seeding data
-	seed.SeedCategories()
-	seed.SeedTags()
-	seed.SeedSampleData()
+	// Statuses are reference data and safe to ensure on every boot.
+	seed.SeedStatuses()
 
-	// Init Gin router
+	// The rest is destructive: SeedCategories TRUNCATEs categories with CASCADE,
+	// which also drops the article-category links, and SeedSampleData inserts a
+	// fresh copy of the demo articles. Both used to run on every start, so any
+	// restart wiped real data. They are opt-in now and refuse to run in prod.
+	if os.Getenv("SEED_SAMPLE_DATA") == "true" {
+		if config.IsProduction() {
+			log.Fatal("SEED_SAMPLE_DATA is destructive and must not be used in production")
+		}
+		log.Println("WARNING: seeding sample data, this truncates categories")
+		seed.SeedCategories()
+		seed.SeedTags()
+		seed.SeedSampleData()
+	}
+
 	r := gin.Default()
 
-	// CORS middleware for frontend
 	r.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:5173"},
-		AllowMethods:     []string{"POST", "GET", "PUT", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type"},
+		AllowOrigins:     config.AllowedOrigins(),
+		AllowMethods:     []string{"POST", "GET", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Accept"},
 		AllowCredentials: true,
 	}))
 
-	// Test route
-	r.GET("/ping", func(c *gin.Context) {
-		c.JSON(200, gin.H{"message": "pong"})
-	})
+	r.GET("/ping", func(c *gin.Context) { c.JSON(200, gin.H{"message": "pong"}) })
+	r.GET("/healthz", routes.Health)
 
-	// Auth route
 	r.POST("/login", routes.Login)
-
-	// Protected dashboard route
 	r.GET("/dashboard", routes.Dashboard)
-
-	// Protected me route
 	r.GET("/me", routes.Me)
 
-	// Categories CRUD routes
-	r.POST("/api/categories", routes.CreateCategory)
-	r.GET("/api/categories", routes.GetCategories)
-	r.GET("/api/categories/:id", routes.GetCategory)
-	r.PUT("/api/categories/:id", routes.UpdateCategory)
-	r.DELETE("/api/categories/:id", routes.DeleteCategory)
+	// Public reads. The site build and the CMS both use these.
+	public := r.Group("/api")
+	{
+		public.GET("/categories", routes.GetCategories)
+		public.GET("/categories/:id", routes.GetCategory)
+		public.GET("/articles", routes.GetArticles)
+		public.GET("/articles/:id", routes.GetArticle)
+		public.GET("/tags", routes.GetTags)
+		public.GET("/tags/:id", routes.GetTag)
+		public.GET("/services", routes.GetServices)
+		public.GET("/services/:id", routes.GetService)
+		public.GET("/media", routes.ListMedia)
+	}
 
-	// Articles CRUD routes
-	r.POST("/api/articles", routes.CreateArticle)
-	r.GET("/api/articles", routes.GetArticles)
-	r.GET("/api/articles/:id", routes.GetArticle)
-	r.PUT("/api/articles/:id", routes.UpdateArticle)
-	r.DELETE("/api/articles/:id", routes.DeleteArticle)
+	// Writes. These were wide open: anyone who could reach the API could create,
+	// edit or delete articles, categories and tags.
+	authed := r.Group("/api", middleware.RequireAuth())
+	{
+		authed.POST("/categories", routes.CreateCategory)
+		authed.PUT("/categories/:id", routes.UpdateCategory)
+		authed.DELETE("/categories/:id", routes.DeleteCategory)
 
-	// Tags CRUD routes
-	r.POST("/api/tags", routes.CreateTag)
-	r.GET("/api/tags", routes.GetTags)
-	r.GET("/api/tags/:id", routes.GetTag)
+		authed.POST("/articles", routes.CreateArticle)
+		authed.PUT("/articles/:id", routes.UpdateArticle)
+		authed.DELETE("/articles/:id", routes.DeleteArticle)
 
-	r.OPTIONS("/*path", func(c *gin.Context) {
-		c.Status(204)
-	})
+		authed.POST("/tags", routes.CreateTag)
 
-	// Serve static files
-	r.Static("/images", "./static/images")
+		authed.POST("/services", routes.CreateService)
+		authed.PUT("/services/:id", routes.UpdateService)
+		authed.DELETE("/services/:id", routes.DeleteService)
 
-	// Run server on PORT from .env
-	r.Run(":8000") // default port fallback
+		authed.POST("/media", routes.UploadMedia)
+		authed.DELETE("/media/:id", routes.DeleteMedia)
+	}
+
+	r.Static("/images", config.UploadDir())
+
+	log.Printf("listening on %s (env=%s)", config.Port(), config.AppEnv())
+	if err := r.Run(config.Port()); err != nil {
+		log.Fatal(err)
+	}
 }

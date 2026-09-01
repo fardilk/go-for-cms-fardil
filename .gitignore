@@ -1,1 +1,16 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Build output
+cms-porto-fardil
+main
+*.exe
+tsconfig.tsbuildinfo
+
+# Uploaded media is user data, not source
+static/images/*
+!static/images/.gitkeep
+
 dbeaver-ce_latest_amd64.deb
