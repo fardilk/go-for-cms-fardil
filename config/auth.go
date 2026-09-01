@@ -2,6 +2,7 @@ package config
 
 import (
 	"log"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -91,4 +92,18 @@ func MediaQuotaBytes() int64 {
 		return 0
 	}
 	return n
+}
+
+// CookieSameSite controls the session cookie's SameSite attribute. The panel is
+// served from the same origin as the API, so Lax is both sufficient and safer
+// than None; set COOKIE_SAMESITE=none only if the CMS moves to its own domain.
+func CookieSameSite() http.SameSite {
+	switch strings.ToLower(os.Getenv("COOKIE_SAMESITE")) {
+	case "none":
+		return http.SameSiteNoneMode
+	case "strict":
+		return http.SameSiteStrictMode
+	default:
+		return http.SameSiteLaxMode
+	}
 }

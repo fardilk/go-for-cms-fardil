@@ -86,13 +86,9 @@ func Login(c *gin.Context) {
 	}
 
 	// Set JWT as HTTP-only cookie
-	// Secure in production; the CMS runs on a different subdomain, so the cookie
-	// has to be SameSite=None, which browsers only accept together with Secure.
-	if config.IsProduction() {
-		c.SetSameSite(http.SameSiteNoneMode)
-	} else {
-		c.SetSameSite(http.SameSiteLaxMode)
-	}
+	// Secure in production. SameSite defaults to Lax because the panel is served
+	// from the same origin as the API, under /admin on the marketing domain.
+	c.SetSameSite(config.CookieSameSite())
 	c.SetCookie("jwt", token, 3600*24, "/", config.CookieDomain(), config.IsProduction(), true)
 
 	c.JSON(http.StatusOK, gin.H{
