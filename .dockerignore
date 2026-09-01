@@ -1,0 +1,9 @@
+.git
+.github
+.env
+.env.*
+!.env.example
+static/images/*
+*.deb
+*_test.go
+README.md
