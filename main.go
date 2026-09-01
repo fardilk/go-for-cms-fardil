@@ -82,6 +82,7 @@ func main() {
 		public.GET("/services", routes.GetServices)
 		public.GET("/services/:id", routes.GetService)
 		public.GET("/media", routes.ListMedia)
+		public.GET("/media/usage", routes.MediaUsage)
 	}
 
 	// Writes. These were wide open: anyone who could reach the API could create,

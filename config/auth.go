@@ -3,6 +3,7 @@ package config
 import (
 	"log"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -71,4 +72,23 @@ func UploadDir() string {
 // across subdomains. Empty means host-only, which is right for local dev.
 func CookieDomain() string {
 	return os.Getenv("COOKIE_DOMAIN")
+}
+
+// MediaQuotaBytes caps the total size of stored uploads. The upload directory
+// sits on a fixed-size volume, so this exists to fail with a clear message
+// before the filesystem fails with ENOSPC. Zero disables the check.
+//
+// ponytail: sums the recorded sizes rather than calling statfs, which keeps the
+// code portable; it undercounts anything written to the volume outside the API.
+func MediaQuotaBytes() int64 {
+	v := os.Getenv("MEDIA_QUOTA_BYTES")
+	if v == "" {
+		return 0
+	}
+	n, err := strconv.ParseInt(v, 10, 64)
+	if err != nil || n < 0 {
+		log.Printf("WARNING: ignoring invalid MEDIA_QUOTA_BYTES=%q", v)
+		return 0
+	}
+	return n
 }

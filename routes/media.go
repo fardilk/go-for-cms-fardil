@@ -44,6 +44,11 @@ func UploadMedia(c *gin.Context) {
 		return
 	}
 
+	if msg, ok := quotaAllows(fileHeader.Size); !ok {
+		c.JSON(http.StatusInsufficientStorage, gin.H{"error": msg})
+		return
+	}
+
 	src, err := fileHeader.Open()
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Could not read upload"})
@@ -149,4 +154,38 @@ func randomName() string {
 		return "upload"
 	}
 	return hex.EncodeToString(b)
+}
+
+// quotaAllows reports whether one more file of the given size fits in the media
+// budget, so the panel can say "storage is full" instead of surfacing a write
+// error from a volume that has run out of blocks.
+func quotaAllows(incoming int64) (string, bool) {
+	quota := config.MediaQuotaBytes()
+	if quota <= 0 {
+		return "", true
+	}
+	var used int64
+	config.DB.Model(&models.MediaAsset{}).Select("COALESCE(SUM(size_bytes), 0)").Scan(&used)
+	if used+incoming > quota {
+		return fmt.Sprintf(
+			"Media storage is full: %d MB of %d MB used. Delete unused images before uploading.",
+			used/(1<<20), quota/(1<<20),
+		), false
+	}
+	return "", true
+}
+
+// MediaUsage handles GET /api/media/usage so the CMS can show remaining space.
+func MediaUsage(c *gin.Context) {
+	var used int64
+	config.DB.Model(&models.MediaAsset{}).Select("COALESCE(SUM(size_bytes), 0)").Scan(&used)
+
+	var count int64
+	config.DB.Model(&models.MediaAsset{}).Count(&count)
+
+	c.JSON(http.StatusOK, gin.H{
+		"used_bytes":  used,
+		"quota_bytes": config.MediaQuotaBytes(),
+		"file_count":  count,
+	})
 }
