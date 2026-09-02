@@ -152,3 +152,46 @@ func TestDeleteRemovesChildren(t *testing.T) {
 	config.DB.Model(&models.ServiceFaq{}).Count(&faqs)
 	assert.Equal(t, int64(0), faqs, "child rows must not outlive the service")
 }
+
+// The reason PATCH exists: flipping a page live from a list must not take its
+// content with it.
+func TestPatchKeepsChildRows(t *testing.T) {
+	r := setupServiceRouter(t)
+	r.PATCH("/api/services/:id", PatchService)
+
+	create := do(t, r, "POST", "/api/services", map[string]interface{}{
+		"slug": "leadership", "category": "training", "title": "Leadership",
+		"template": "program", "published": false,
+		"steps": []map[string]interface{}{
+			{"title": "Modul 1", "meta": "4 jam", "position": 0},
+			{"title": "Modul 2", "meta": "4 jam", "position": 1},
+		},
+		"faqs": []map[string]interface{}{{"question": "Berapa lama?", "answer": "2 hari"}},
+	})
+	assert.Equal(t, http.StatusCreated, create.Code)
+
+	patch := do(t, r, "PATCH", "/api/services/1", map[string]interface{}{"published": true})
+	assert.Equal(t, http.StatusOK, patch.Code)
+
+	var steps, faqs int64
+	config.DB.Model(&models.ServiceStep{}).Count(&steps)
+	config.DB.Model(&models.ServiceFaq{}).Count(&faqs)
+	assert.Equal(t, int64(2), steps, "a status flip must not delete the curriculum")
+	assert.Equal(t, int64(1), faqs)
+
+	w := do(t, r, "GET", "/api/services?published=true", nil)
+	var services []models.Service
+	assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &services))
+	assert.Len(t, services, 1)
+	assert.Len(t, services[0].Steps, 2)
+}
+
+func TestPatchRejectsEmptyBody(t *testing.T) {
+	r := setupServiceRouter(t)
+	r.PATCH("/api/services/:id", PatchService)
+
+	do(t, r, "POST", "/api/services", map[string]interface{}{
+		"slug": "sales", "category": "training", "title": "Sales", "template": "program",
+	})
+	assert.Equal(t, http.StatusBadRequest, do(t, r, "PATCH", "/api/services/1", map[string]interface{}{}).Code)
+}

@@ -169,3 +169,45 @@ func validateService(s *models.Service) (string, bool) {
 	}
 	return "", true
 }
+
+// PatchService handles PATCH /api/services/:id for the few fields that can be
+// flipped from a list view.
+//
+// It exists so toggling a page live cannot destroy it: UpdateService replaces
+// child rows wholesale, so a caller holding only summary fields would wipe
+// every step, plan and FAQ. A partial update cannot do that by construction.
+func PatchService(c *gin.Context) {
+	var service models.Service
+	if err := config.DB.First(&service, c.Param("id")).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Service not found"})
+		return
+	}
+
+	var body struct {
+		Published *bool `json:"published"`
+		SortOrder *int  `json:"sort_order"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	updates := map[string]interface{}{}
+	if body.Published != nil {
+		updates["published"] = *body.Published
+	}
+	if body.SortOrder != nil {
+		updates["sort_order"] = *body.SortOrder
+	}
+	if len(updates) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "nothing to update"})
+		return
+	}
+
+	if err := config.DB.Model(&service).Updates(updates).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update service"})
+		return
+	}
+
+	c.JSON(http.StatusOK, service)
+}

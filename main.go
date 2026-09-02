@@ -105,6 +105,7 @@ func main() {
 
 		authed.POST("/services", routes.CreateService)
 		authed.PUT("/services/:id", routes.UpdateService)
+		authed.PATCH("/services/:id", routes.PatchService)
 		authed.DELETE("/services/:id", routes.DeleteService)
 
 		authed.GET("/leads", routes.GetLeads)
