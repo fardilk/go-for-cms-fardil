@@ -99,6 +99,7 @@ func main() {
 
 		authed.POST("/articles", routes.CreateArticle)
 		authed.PUT("/articles/:id", routes.UpdateArticle)
+		authed.PATCH("/articles/:id", routes.PatchArticle)
 		authed.DELETE("/articles/:id", routes.DeleteArticle)
 
 		authed.POST("/tags", routes.CreateTag)

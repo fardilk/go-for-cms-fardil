@@ -9,9 +9,9 @@ import (
 
 // Category represents the category model.
 type Category struct {
-	ID   uint   `gorm:"primaryKey"`
-	Name string `gorm:"not null;unique"`
-	Slug string `gorm:"not null;unique"`
+	ID   uint   `gorm:"primaryKey" json:"id"`
+	Name string `gorm:"not null;unique" json:"name"`
+	Slug string `gorm:"not null;unique" json:"slug"`
 }
 
 func GetCategories(c *gin.Context) {
