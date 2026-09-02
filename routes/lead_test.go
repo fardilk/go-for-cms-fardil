@@ -171,3 +171,84 @@ func TestListReportsUnreadCount(t *testing.T) {
 	assert.Equal(t, int64(2), list.Total)
 	assert.Equal(t, int64(1), list.NewCount, "only the untouched lead counts as unread")
 }
+
+// A registration is a promise to print a certificate and post it, so the
+// fields that decide what is printed and where it goes are all required —
+// while a plain enquiry must stay submittable with only a message.
+func TestRegistrationRequiresCertificateFields(t *testing.T) {
+	r := setupLeadRouter(t)
+
+	w := postLead(t, r, map[string]any{
+		"kind":  models.KindRegistration,
+		"name":  "Budi Santoso",
+		"email": "budi@perusahaan.co.id",
+		"phone": "081200000000",
+	}, "203.0.113.90")
+
+	assert.Equal(t, 400, w.Code)
+
+	var body struct {
+		Fields map[string]string `json:"fields"`
+	}
+	assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	for _, field := range []string{
+		"company", "company_address", "division", "position", "city",
+		"certificate_address", "referral_source",
+	} {
+		assert.Contains(t, body.Fields, field)
+	}
+	// The registration form does not ask for one, so demanding it would make
+	// every submission fail.
+	assert.NotContains(t, body.Fields, "message")
+}
+
+func TestRegistrationIsStoredWithItsOwnFields(t *testing.T) {
+	r := setupLeadRouter(t)
+
+	w := postLead(t, r, map[string]any{
+		"kind":                models.KindRegistration,
+		"name":                "Budi Santoso",
+		"email":               "budi@perusahaan.co.id",
+		"phone":               "081200000000",
+		"company":             "PT Contoh Nusantara",
+		"company_address":     "Jl. Sudirman No. 1, Jakarta",
+		"division":            "Human Capital",
+		"position":            "Learning Manager",
+		"city":                "Bekasi",
+		"certificate_address": "Jl. Melati No. 7, Bekasi",
+		"referral_source":     "instagram",
+		"source_path":         "/registration?program=sertifikasi-trainer-bnsp",
+	}, "203.0.113.91")
+
+	assert.Equal(t, 201, w.Code)
+
+	var stored models.Lead
+	assert.NoError(t, config.DB.Order("id DESC").First(&stored).Error)
+	assert.Equal(t, models.KindRegistration, stored.Kind)
+	assert.Equal(t, "Budi Santoso", stored.Name)
+	assert.Equal(t, "Jl. Melati No. 7, Bekasi", stored.CertificateAddress)
+	assert.Equal(t, "instagram", stored.ReferralSource)
+	assert.Equal(t, "Learning Manager", stored.Position)
+	assert.Equal(t, models.LeadNew, stored.Status)
+}
+
+// The contact form sends no kind at all, and must keep working exactly as it
+// did before registrations existed.
+func TestEnquiryWithoutKindStillNeedsAMessage(t *testing.T) {
+	r := setupLeadRouter(t)
+
+	w := postLead(t, r, map[string]any{
+		"name":  "Sari",
+		"email": "sari@contoh.id",
+		"phone": "081200000001",
+	}, "203.0.113.92")
+
+	assert.Equal(t, 400, w.Code)
+
+	var body struct {
+		Fields map[string]string `json:"fields"`
+	}
+	assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.Contains(t, body.Fields, "message")
+	assert.NotContains(t, body.Fields, "certificate_address")
+}

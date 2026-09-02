@@ -30,6 +30,8 @@ const (
 	maxCompanyLen = 160
 	maxMessageLen = 4000
 	maxSourceLen  = 300
+	maxAddressLen = 400
+	maxShortLen   = 160
 )
 
 type leadRequest struct {
@@ -40,6 +42,15 @@ type leadRequest struct {
 	Message string `json:"message"`
 
 	SourcePath string `json:"source_path"`
+
+	Kind string `json:"kind"`
+
+	CompanyAddress     string `json:"company_address"`
+	Division           string `json:"division"`
+	Position           string `json:"position"`
+	City               string `json:"city"`
+	CertificateAddress string `json:"certificate_address"`
+	ReferralSource     string `json:"referral_source"`
 
 	// Website is a honeypot. It is hidden from people and left empty by them;
 	// anything that fills it is automated.
@@ -78,6 +89,11 @@ func CreateLead(c *gin.Context) {
 		return
 	}
 
+	kind := models.KindEnquiry
+	if req.Kind == models.KindRegistration {
+		kind = models.KindRegistration
+	}
+
 	lead := models.Lead{
 		Name:       trimTo(req.Name, maxNameLen),
 		Email:      trimTo(req.Email, maxEmailLen),
@@ -85,7 +101,15 @@ func CreateLead(c *gin.Context) {
 		Company:    trimTo(req.Company, maxCompanyLen),
 		Message:    trimTo(req.Message, maxMessageLen),
 		SourcePath: trimTo(req.SourcePath, maxSourceLen),
+		Kind:       kind,
 		Status:     models.LeadNew,
+
+		CompanyAddress:     trimTo(req.CompanyAddress, maxAddressLen),
+		Division:           trimTo(req.Division, maxShortLen),
+		Position:           trimTo(req.Position, maxShortLen),
+		City:               trimTo(req.City, maxShortLen),
+		CertificateAddress: trimTo(req.CertificateAddress, maxAddressLen),
+		ReferralSource:     trimTo(req.ReferralSource, maxShortLen),
 	}
 
 	if fields := missingLeadFields(lead); len(fields) > 0 {
@@ -119,13 +143,43 @@ func missingLeadFields(l models.Lead) map[string]string {
 	if l.Phone == "" {
 		fields["phone"] = "Nomor telepon wajib diisi"
 	}
-	if l.Message == "" {
-		fields["message"] = "Pesan wajib diisi"
+
+	if l.Kind != models.KindRegistration {
+		// An enquiry is nothing without the question.
+		if l.Message == "" {
+			fields["message"] = "Pesan wajib diisi"
+		}
+		return fields
+	}
+
+	// A registration is a commitment to print a certificate and post it, so
+	// every field that decides what is printed and where it goes is required.
+	required := map[string]struct {
+		value   string
+		message string
+	}{
+		"company":             {l.Company, "Instansi/perusahaan wajib diisi"},
+		"company_address":     {l.CompanyAddress, "Alamat perusahaan wajib diisi"},
+		"division":            {l.Division, "Divisi/departemen wajib diisi"},
+		"position":            {l.Position, "Jabatan wajib diisi"},
+		"city":                {l.City, "Kota domisili wajib diisi"},
+		"certificate_address": {l.CertificateAddress, "Alamat pengiriman sertifikat wajib diisi"},
+		"referral_source":     {l.ReferralSource, "Mohon pilih dari mana Anda mendapat info"},
+	}
+	for name, f := range required {
+		if strings.TrimSpace(f.value) == "" {
+			fields[name] = f.message
+		}
 	}
 	return fields
 }
 
 func notifyNewLead(l models.Lead) {
+	if l.Kind == models.KindRegistration {
+		notifyNewRegistration(l)
+		return
+	}
+
 	company := l.Company
 	if company == "" {
 		company = "-"
@@ -149,6 +203,32 @@ func notifyNewLead(l models.Lead) {
 	)
 
 	mailer.SendAsync(mailer.FromEnv(), "Lead baru: "+l.Name, body)
+}
+
+func notifyNewRegistration(l models.Lead) {
+	body := fmt.Sprintf(
+		"Pendaftaran baru dari situs Excellence Plus Indonesia.\n\n"+
+			"Nama (sertifikat) : %s\n"+
+			"Email             : %s\n"+
+			"Telepon           : %s\n"+
+			"Instansi          : %s\n"+
+			"Alamat instansi   : %s\n"+
+			"Divisi            : %s\n"+
+			"Jabatan           : %s\n"+
+			"Kota domisili     : %s\n"+
+			"Kirim sertifikat  : %s\n"+
+			"Info dari         : %s\n"+
+			"Halaman           : %s\n"+
+			"Waktu             : %s\n",
+		l.Name, l.Email, l.Phone, l.Company, l.CompanyAddress, l.Division,
+		l.Position, l.City, l.CertificateAddress, l.ReferralSource, l.SourcePath,
+		l.CreatedAt.Format("2 January 2006 15:04"),
+	)
+	if strings.TrimSpace(l.Message) != "" {
+		body += "\nCatatan:\n" + l.Message + "\n"
+	}
+
+	mailer.SendAsync(mailer.FromEnv(), "Pendaftaran baru: "+l.Name, body)
 }
 
 // GetLeads handles GET /api/leads. Returns the page plus the count of unread
