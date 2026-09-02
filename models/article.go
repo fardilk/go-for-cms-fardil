@@ -37,6 +37,8 @@ type Article struct {
 	Categories []Category `gorm:"many2many:article_categories;" json:"categories"`
 	Tags       []Tag      `gorm:"many2many:article_tags;" json:"tags"`
 
-	StatusID uint    `json:"status_id"`
-	Status   *Status `json:"status,omitempty"`
+	StatusID uint `json:"status_id"`
+	// Named apart from "status" on purpose: callers have long sent that key as a
+	// plain string, and binding it into a struct turns their request into a 400.
+	Status *Status `json:"status_detail,omitempty"`
 }
