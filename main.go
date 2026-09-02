@@ -109,6 +109,7 @@ func main() {
 		authed.PATCH("/services/:id", routes.PatchService)
 		authed.DELETE("/services/:id", routes.DeleteService)
 
+		authed.GET("/stats", routes.GetStats)
 		authed.GET("/leads", routes.GetLeads)
 		authed.PATCH("/leads/:id", routes.UpdateLead)
 		authed.DELETE("/leads/:id", routes.DeleteLead)
