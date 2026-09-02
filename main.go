@@ -33,6 +33,7 @@ func main() {
 		&models.ServicePlan{},
 		&models.ServiceProof{},
 		&models.ServiceSchedule{},
+		&models.Lead{},
 	)
 
 	models.Migrate()
@@ -83,6 +84,9 @@ func main() {
 		public.GET("/services/:id", routes.GetService)
 		public.GET("/media", routes.ListMedia)
 		public.GET("/media/usage", routes.MediaUsage)
+
+		// The only unauthenticated write: the public contact form.
+		public.POST("/leads", routes.CreateLead)
 	}
 
 	// Writes. These were wide open: anyone who could reach the API could create,
@@ -102,6 +106,10 @@ func main() {
 		authed.POST("/services", routes.CreateService)
 		authed.PUT("/services/:id", routes.UpdateService)
 		authed.DELETE("/services/:id", routes.DeleteService)
+
+		authed.GET("/leads", routes.GetLeads)
+		authed.PATCH("/leads/:id", routes.UpdateLead)
+		authed.DELETE("/leads/:id", routes.DeleteLead)
 
 		authed.POST("/media", routes.UploadMedia)
 		authed.DELETE("/media/:id", routes.DeleteMedia)
