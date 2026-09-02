@@ -252,3 +252,45 @@ func TestEnquiryWithoutKindStillNeedsAMessage(t *testing.T) {
 	assert.Contains(t, body.Fields, "message")
 	assert.NotContains(t, body.Fields, "certificate_address")
 }
+
+// The panel splits one table three ways. A row must appear in exactly the list
+// it belongs to: an enquiry is never a registration, and someone who only
+// asked for a seat is not yet a participant.
+func TestStageFiltersSeparateRequestsFromParticipants(t *testing.T) {
+	r := setupLeadRouter(t)
+
+	seed := []models.Lead{
+		{Name: "Tanya", Email: "t@x.id", Phone: "1", Message: "m", Kind: models.KindEnquiry, Status: models.LeadNew},
+		{Name: "Minta", Email: "m@x.id", Phone: "2", Kind: models.KindRegistration, Status: models.LeadNew},
+		{Name: "Diproses", Email: "d@x.id", Phone: "3", Kind: models.KindRegistration, Status: models.LeadContacted},
+		{Name: "Peserta", Email: "p@x.id", Phone: "4", Kind: models.KindRegistration, Status: models.LeadEnrolled},
+		{Name: "Batal", Email: "b@x.id", Phone: "5", Kind: models.KindRegistration, Status: models.LeadLost},
+	}
+	for i := range seed {
+		assert.NoError(t, config.DB.Create(&seed[i]).Error)
+	}
+
+	names := func(query string) []string {
+		req, _ := http.NewRequest("GET", "/api/leads"+query, nil)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		assert.Equal(t, 200, w.Code)
+
+		var body struct {
+			Items []models.Lead `json:"items"`
+			Total int64         `json:"total"`
+		}
+		assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+		assert.EqualValues(t, len(body.Items), body.Total, "total must match the filtered page")
+
+		out := make([]string, 0, len(body.Items))
+		for _, l := range body.Items {
+			out = append(out, l.Name)
+		}
+		return out
+	}
+
+	assert.ElementsMatch(t, []string{"Minta", "Diproses"}, names("?stage=permintaan"))
+	assert.ElementsMatch(t, []string{"Peserta"}, names("?stage=peserta"))
+	assert.ElementsMatch(t, []string{"Tanya"}, names("?kind=enquiry"))
+}

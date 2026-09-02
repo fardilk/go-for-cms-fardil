@@ -9,10 +9,14 @@ const (
 	LeadContacted = "contacted"
 	LeadWon       = "won"
 	LeadLost      = "lost"
+
+	// A registration that has been paid for and placed in a batch. It is what
+	// separates someone who asked for a seat from someone who holds one.
+	LeadEnrolled = "enrolled"
 )
 
 // ValidLeadStatuses is the allow-list used when the panel changes a status.
-var ValidLeadStatuses = []string{LeadNew, LeadContacted, LeadWon, LeadLost}
+var ValidLeadStatuses = []string{LeadNew, LeadContacted, LeadWon, LeadLost, LeadEnrolled}
 
 // What the visitor was doing. An enquiry needs a message and nothing else; a
 // registration needs the details that go on a certificate and its delivery.

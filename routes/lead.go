@@ -239,6 +239,20 @@ func GetLeads(c *gin.Context) {
 		tx = tx.Where("status = ?", status)
 	}
 
+	// The panel splits the same table three ways: enquiries, registrations
+	// still being processed, and the people who hold a seat.
+	if kind := c.Query("kind"); kind == models.KindEnquiry || kind == models.KindRegistration {
+		tx = tx.Where("kind = ?", kind)
+	}
+	switch c.Query("stage") {
+	case "permintaan":
+		tx = tx.Where("kind = ?", models.KindRegistration).
+			Where("status IN ?", []string{models.LeadNew, models.LeadContacted})
+	case "peserta":
+		tx = tx.Where("kind = ?", models.KindRegistration).
+			Where("status = ?", models.LeadEnrolled)
+	}
+
 	var total int64
 	tx.Count(&total)
 
@@ -288,7 +302,7 @@ func UpdateLead(c *gin.Context) {
 	if body.Status != nil {
 		if !slices.Contains(models.ValidLeadStatuses, *body.Status) {
 			c.JSON(http.StatusBadRequest, gin.H{
-				"error": "status must be one of: new, contacted, won, lost",
+				"error": "status must be one of: " + strings.Join(models.ValidLeadStatuses, ", "),
 			})
 			return
 		}

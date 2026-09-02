@@ -40,6 +40,11 @@ type statsResponse struct {
 		ByPage   []countPair `json:"by_page"`
 	} `json:"leads"`
 
+	Registrations struct {
+		Pending  int64 `json:"pending"`
+		Enrolled int64 `json:"enrolled"`
+	} `json:"registrations"`
+
 	Content struct {
 		ArticlesPublished int64 `json:"articles_published"`
 		ArticlesDraft     int64 `json:"articles_draft"`
@@ -119,6 +124,10 @@ func GetStats(c *gin.Context) {
 	pub.Count(&out.Content.ArticlesPublished)
 
 	var articles int64
+	reg := func() *gorm.DB { return db.Model(&models.Lead{}).Where("kind = ?", models.KindRegistration) }
+	reg().Where("status IN ?", []string{models.LeadNew, models.LeadContacted}).Count(&out.Registrations.Pending)
+	reg().Where("status = ?", models.LeadEnrolled).Count(&out.Registrations.Enrolled)
+
 	db.Model(&models.Article{}).Count(&articles)
 	out.Content.ArticlesDraft = articles - out.Content.ArticlesPublished
 	db.Model(&models.Service{}).Where("published = ?", true).Count(&out.Content.ServicesPublished)
