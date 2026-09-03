@@ -23,7 +23,21 @@ var ValidLeadStatuses = []string{LeadNew, LeadContacted, LeadWon, LeadLost, Lead
 const (
 	KindEnquiry      = "enquiry"
 	KindRegistration = "registration"
+
+	// Someone asking us to work out what they need before any programme is
+	// named. It carries no certificate data because nothing is being enrolled
+	// in yet.
+	KindConsultation = "consultation"
+
+	// A seat asked for in a named programme, before payment. It becomes a
+	// registration once the certificate details are collected, so it stays a
+	// separate kind rather than a half-filled registration.
+	KindReservation = "reservation"
 )
+
+// ValidLeadKinds is the allow-list for the public form. Anything else is
+// stored as an enquiry.
+var ValidLeadKinds = []string{KindEnquiry, KindRegistration, KindConsultation, KindReservation}
 
 // Lead is one enquiry submitted from the public site.
 //
@@ -52,6 +66,20 @@ type Lead struct {
 	City               string `json:"city"`
 	CertificateAddress string `json:"certificate_address"`
 	ReferralSource     string `json:"referral_source"`
+
+	// What the visitor picked in the programme selector. The category is the
+	// parent ("training"), the slug the child ("leadership"). Held as columns
+	// rather than parsed back out of SourcePath, so a link that changes shape
+	// cannot orphan the answer.
+	ProgramCategory string `gorm:"index" json:"program_category"`
+	ProgramSlug     string `gorm:"index" json:"program_slug"`
+
+	// Shared by the consultation and reservation forms.
+	Participants     string `json:"participants"`
+	DeliveryMode     string `json:"delivery_mode"`
+	PreferredBatch   string `json:"preferred_batch"`
+	BudgetRange      string `json:"budget_range"`
+	PreferredContact string `json:"preferred_contact"`
 
 	// Path of the page the form was submitted from, so it is clear which
 	// service generated the enquiry.

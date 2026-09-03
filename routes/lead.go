@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
 	"github.com/fardilk/cms-porto-fardil/config"
 	"github.com/fardilk/cms-porto-fardil/internal/mailer"
@@ -52,6 +53,14 @@ type leadRequest struct {
 	CertificateAddress string `json:"certificate_address"`
 	ReferralSource     string `json:"referral_source"`
 
+	ProgramCategory  string `json:"program_category"`
+	ProgramSlug      string `json:"program_slug"`
+	Participants     string `json:"participants"`
+	DeliveryMode     string `json:"delivery_mode"`
+	PreferredBatch   string `json:"preferred_batch"`
+	BudgetRange      string `json:"budget_range"`
+	PreferredContact string `json:"preferred_contact"`
+
 	// Website is a honeypot. It is hidden from people and left empty by them;
 	// anything that fills it is automated.
 	Website string `json:"website"`
@@ -89,9 +98,11 @@ func CreateLead(c *gin.Context) {
 		return
 	}
 
+	// Anything the site does not know how to send is filed as an enquiry, which
+	// is the kind with the loosest requirements and so never loses a message.
 	kind := models.KindEnquiry
-	if req.Kind == models.KindRegistration {
-		kind = models.KindRegistration
+	if slices.Contains(models.ValidLeadKinds, req.Kind) {
+		kind = req.Kind
 	}
 
 	lead := models.Lead{
@@ -110,6 +121,14 @@ func CreateLead(c *gin.Context) {
 		City:               trimTo(req.City, maxShortLen),
 		CertificateAddress: trimTo(req.CertificateAddress, maxAddressLen),
 		ReferralSource:     trimTo(req.ReferralSource, maxShortLen),
+
+		ProgramCategory:  trimTo(req.ProgramCategory, maxShortLen),
+		ProgramSlug:      trimTo(req.ProgramSlug, maxShortLen),
+		Participants:     trimTo(req.Participants, maxShortLen),
+		DeliveryMode:     trimTo(req.DeliveryMode, maxShortLen),
+		PreferredBatch:   trimTo(req.PreferredBatch, maxShortLen),
+		BudgetRange:      trimTo(req.BudgetRange, maxShortLen),
+		PreferredContact: trimTo(req.PreferredContact, maxShortLen),
 	}
 
 	if fields := missingLeadFields(lead); len(fields) > 0 {
@@ -144,7 +163,48 @@ func missingLeadFields(l models.Lead) map[string]string {
 		fields["phone"] = "Nomor telepon wajib diisi"
 	}
 
-	if l.Kind != models.KindRegistration {
+	// Each kind asks for the least it can act on. Requiring a certificate
+	// address to book a discovery call, or a written brief to reserve a named
+	// seat, only costs submissions.
+	var required map[string]string
+
+	switch l.Kind {
+	case models.KindRegistration:
+		// A registration is a commitment to print a certificate and post it, so
+		// every field that decides what is printed and where it goes is required.
+		required = map[string]string{
+			"company":             ifBlank(l.Company, "Instansi/perusahaan wajib diisi"),
+			"company_address":     ifBlank(l.CompanyAddress, "Alamat perusahaan wajib diisi"),
+			"division":            ifBlank(l.Division, "Divisi/departemen wajib diisi"),
+			"position":            ifBlank(l.Position, "Jabatan wajib diisi"),
+			"city":                ifBlank(l.City, "Kota domisili wajib diisi"),
+			"certificate_address": ifBlank(l.CertificateAddress, "Alamat pengiriman sertifikat wajib diisi"),
+			"referral_source":     ifBlank(l.ReferralSource, "Mohon pilih dari mana Anda mendapat info"),
+		}
+
+	case models.KindConsultation:
+		// Nothing is being booked yet. We need to know who they are, what area
+		// they are asking about, what the problem is, and how to reach them.
+		required = map[string]string{
+			"company":           ifBlank(l.Company, "Instansi/perusahaan wajib diisi"),
+			"position":          ifBlank(l.Position, "Jabatan wajib diisi"),
+			"program_category":  ifBlank(l.ProgramCategory, "Pilih bidang yang ingin dibahas"),
+			"message":           ifBlank(l.Message, "Ceritakan kebutuhan atau tantangan Anda"),
+			"preferred_contact": ifBlank(l.PreferredContact, "Pilih cara kami menghubungi Anda"),
+		}
+
+	case models.KindReservation:
+		// A seat is being held in a named programme, so the programme itself is
+		// the one thing that cannot be missing.
+		required = map[string]string{
+			"company":          ifBlank(l.Company, "Instansi/perusahaan wajib diisi"),
+			"program_category": ifBlank(l.ProgramCategory, "Pilih kategori program"),
+			"program_slug":     ifBlank(l.ProgramSlug, "Pilih program yang ingin direservasi"),
+			"participants":     ifBlank(l.Participants, "Isi jumlah peserta"),
+			"delivery_mode":    ifBlank(l.DeliveryMode, "Pilih format pelaksanaan"),
+		}
+
+	default:
 		// An enquiry is nothing without the question.
 		if l.Message == "" {
 			fields["message"] = "Pesan wajib diisi"
@@ -152,31 +212,33 @@ func missingLeadFields(l models.Lead) map[string]string {
 		return fields
 	}
 
-	// A registration is a commitment to print a certificate and post it, so
-	// every field that decides what is printed and where it goes is required.
-	required := map[string]struct {
-		value   string
-		message string
-	}{
-		"company":             {l.Company, "Instansi/perusahaan wajib diisi"},
-		"company_address":     {l.CompanyAddress, "Alamat perusahaan wajib diisi"},
-		"division":            {l.Division, "Divisi/departemen wajib diisi"},
-		"position":            {l.Position, "Jabatan wajib diisi"},
-		"city":                {l.City, "Kota domisili wajib diisi"},
-		"certificate_address": {l.CertificateAddress, "Alamat pengiriman sertifikat wajib diisi"},
-		"referral_source":     {l.ReferralSource, "Mohon pilih dari mana Anda mendapat info"},
-	}
-	for name, f := range required {
-		if strings.TrimSpace(f.value) == "" {
-			fields[name] = f.message
+	for name, message := range required {
+		if message != "" {
+			fields[name] = message
 		}
 	}
 	return fields
 }
 
+// ifBlank returns the message when the value is empty, and "" when it is not,
+// so a required-field table reads as one line per field.
+func ifBlank(value, message string) string {
+	if strings.TrimSpace(value) == "" {
+		return message
+	}
+	return ""
+}
+
 func notifyNewLead(l models.Lead) {
-	if l.Kind == models.KindRegistration {
+	switch l.Kind {
+	case models.KindRegistration:
 		notifyNewRegistration(l)
+		return
+	case models.KindConsultation:
+		notifyNewConsultation(l)
+		return
+	case models.KindReservation:
+		notifyNewReservation(l)
 		return
 	}
 
@@ -231,26 +293,100 @@ func notifyNewRegistration(l models.Lead) {
 	mailer.SendAsync(mailer.FromEnv(), "Pendaftaran baru: "+l.Name, body)
 }
 
+// dash keeps an optional answer from printing as an empty line in the email.
+func dash(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return "-"
+	}
+	return s
+}
+
+func notifyNewConsultation(l models.Lead) {
+	body := fmt.Sprintf(
+		"Permintaan konsultasi dari situs Excellence Plus Indonesia.\n\n"+
+			"Nama           : %s\n"+
+			"Email          : %s\n"+
+			"Telepon        : %s\n"+
+			"Instansi       : %s\n"+
+			"Jabatan        : %s\n"+
+			"Bidang         : %s\n"+
+			"Jumlah peserta : %s\n"+
+			"Format         : %s\n"+
+			"Target waktu   : %s\n"+
+			"Kisaran budget : %s\n"+
+			"Dihubungi via  : %s\n"+
+			"Halaman        : %s\n"+
+			"Waktu          : %s\n\n"+
+			"Kebutuhan:\n%s\n",
+		l.Name, l.Email, l.Phone, dash(l.Company), dash(l.Position),
+		dash(l.ProgramCategory), dash(l.Participants), dash(l.DeliveryMode),
+		dash(l.PreferredBatch), dash(l.BudgetRange), dash(l.PreferredContact),
+		dash(l.SourcePath), l.CreatedAt.Format("2 January 2006 15:04"), l.Message,
+	)
+
+	mailer.SendAsync(mailer.FromEnv(), "Konsultasi baru: "+l.Name, body)
+}
+
+func notifyNewReservation(l models.Lead) {
+	body := fmt.Sprintf(
+		"Reservasi program dari situs Excellence Plus Indonesia.\n\n"+
+			"Nama           : %s\n"+
+			"Email          : %s\n"+
+			"Telepon        : %s\n"+
+			"Instansi       : %s\n"+
+			"Jabatan        : %s\n"+
+			"Kategori       : %s\n"+
+			"Program        : %s\n"+
+			"Jumlah peserta : %s\n"+
+			"Format         : %s\n"+
+			"Batch/waktu    : %s\n"+
+			"Dihubungi via  : %s\n"+
+			"Info dari      : %s\n"+
+			"Halaman        : %s\n"+
+			"Waktu          : %s\n",
+		l.Name, l.Email, l.Phone, dash(l.Company), dash(l.Position),
+		dash(l.ProgramCategory), dash(l.ProgramSlug), dash(l.Participants),
+		dash(l.DeliveryMode), dash(l.PreferredBatch), dash(l.PreferredContact),
+		dash(l.ReferralSource), dash(l.SourcePath),
+		l.CreatedAt.Format("2 January 2006 15:04"),
+	)
+	if strings.TrimSpace(l.Message) != "" {
+		body += "\nCatatan:\n" + l.Message + "\n"
+	}
+
+	mailer.SendAsync(mailer.FromEnv(), "Reservasi baru: "+l.Name, body)
+}
+
 // GetLeads handles GET /api/leads. Returns the page plus the count of unread
 // leads, so the panel can render its sidebar badge without a second request.
 func GetLeads(c *gin.Context) {
-	tx := config.DB.Model(&models.Lead{})
-	if status := c.Query("status"); status != "" && slices.Contains(models.ValidLeadStatuses, status) {
-		tx = tx.Where("status = ?", status)
+	// The panel splits the same table by what the visitor was doing: enquiries,
+	// consultation requests, seats still being processed, and people who hold
+	// one. Applied to a fresh query each time it is needed, so counting cannot
+	// alter the query the page itself is read from.
+	scope := func() *gorm.DB {
+		tx := config.DB.Model(&models.Lead{})
+		if kind := c.Query("kind"); slices.Contains(models.ValidLeadKinds, kind) {
+			tx = tx.Where("kind = ?", kind)
+		}
+
+		// A reservation and a registration are the same thing at different
+		// stages of completeness, so Transaksi counts both.
+		seatKinds := []string{models.KindRegistration, models.KindReservation}
+		switch c.Query("stage") {
+		case "permintaan":
+			tx = tx.Where("kind IN ?", seatKinds).
+				Where("status IN ?", []string{models.LeadNew, models.LeadContacted})
+		case "peserta":
+			tx = tx.Where("kind IN ?", seatKinds).
+				Where("status = ?", models.LeadEnrolled)
+		}
+		return tx
 	}
 
-	// The panel splits the same table three ways: enquiries, registrations
-	// still being processed, and the people who hold a seat.
-	if kind := c.Query("kind"); kind == models.KindEnquiry || kind == models.KindRegistration {
-		tx = tx.Where("kind = ?", kind)
-	}
-	switch c.Query("stage") {
-	case "permintaan":
-		tx = tx.Where("kind = ?", models.KindRegistration).
-			Where("status IN ?", []string{models.LeadNew, models.LeadContacted})
-	case "peserta":
-		tx = tx.Where("kind = ?", models.KindRegistration).
-			Where("status = ?", models.LeadEnrolled)
+	tx := scope()
+	if status := c.Query("status"); status != "" && slices.Contains(models.ValidLeadStatuses, status) {
+		tx = tx.Where("status = ?", status)
 	}
 
 	var total int64
@@ -271,8 +407,10 @@ func GetLeads(c *gin.Context) {
 		return
 	}
 
+	// Unread within this list. Counted globally, the badge on one page would
+	// report the backlog of another.
 	var newCount int64
-	config.DB.Model(&models.Lead{}).Where("status = ?", models.LeadNew).Count(&newCount)
+	scope().Where("status = ?", models.LeadNew).Count(&newCount)
 
 	c.JSON(http.StatusOK, gin.H{
 		"items":     leads,

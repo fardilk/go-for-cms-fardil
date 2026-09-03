@@ -294,3 +294,119 @@ func TestStageFiltersSeparateRequestsFromParticipants(t *testing.T) {
 	assert.ElementsMatch(t, []string{"Peserta"}, names("?stage=peserta"))
 	assert.ElementsMatch(t, []string{"Tanya"}, names("?kind=enquiry"))
 }
+
+func TestConsultationRequiresTheBriefAndNotCertificateFields(t *testing.T) {
+	r := setupLeadRouter(t)
+
+	w := postLead(t, r, map[string]any{
+		"kind":  models.KindConsultation,
+		"name":  "Rani",
+		"email": "rani@contoh.id",
+		"phone": "081200000010",
+	}, "203.0.113.93")
+
+	assert.Equal(t, 400, w.Code)
+
+	var body struct {
+		Fields map[string]string `json:"fields"`
+	}
+	assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	for _, field := range []string{"company", "position", "program_category", "message", "preferred_contact"} {
+		assert.Contains(t, body.Fields, field)
+	}
+	// Nothing is being enrolled in yet, so asking where to post a certificate
+	// would block a form that never collects one.
+	assert.NotContains(t, body.Fields, "certificate_address")
+}
+
+func TestConsultationIsStoredWithItsOwnFields(t *testing.T) {
+	r := setupLeadRouter(t)
+
+	w := postLead(t, r, map[string]any{
+		"kind":              models.KindConsultation,
+		"name":              "Rani",
+		"email":             "rani@contoh.id",
+		"phone":             "081200000010",
+		"company":           "PT Contoh",
+		"position":          "HR Director",
+		"program_category":  "training",
+		"participants":      "20-50",
+		"delivery_mode":     "In-house",
+		"preferred_batch":   "Kuartal ini",
+		"budget_range":      "50-100 juta",
+		"preferred_contact": "WhatsApp",
+		"message":           "Turnover supervisor tinggi, butuh program leadership dasar.",
+		"source_path":       "/book-consultation",
+	}, "203.0.113.94")
+
+	assert.Equal(t, 201, w.Code)
+
+	var stored models.Lead
+	assert.NoError(t, config.DB.Order("id DESC").First(&stored).Error)
+	assert.Equal(t, models.KindConsultation, stored.Kind)
+	assert.Equal(t, "training", stored.ProgramCategory)
+	assert.Equal(t, "20-50", stored.Participants)
+	assert.Equal(t, "WhatsApp", stored.PreferredContact)
+	assert.Equal(t, "50-100 juta", stored.BudgetRange)
+}
+
+func TestReservationRequiresAProgramme(t *testing.T) {
+	r := setupLeadRouter(t)
+
+	w := postLead(t, r, map[string]any{
+		"kind":  models.KindReservation,
+		"name":  "Dimas",
+		"email": "dimas@contoh.id",
+		"phone": "081200000011",
+	}, "203.0.113.95")
+
+	assert.Equal(t, 400, w.Code)
+
+	var body struct {
+		Fields map[string]string `json:"fields"`
+	}
+	assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	for _, field := range []string{"company", "program_category", "program_slug", "participants", "delivery_mode"} {
+		assert.Contains(t, body.Fields, field)
+	}
+	assert.NotContains(t, body.Fields, "certificate_address")
+	assert.NotContains(t, body.Fields, "message")
+}
+
+// A reservation is a registration that has not been completed yet, so Transaksi
+// has to count it alongside one. Missing this would hide every booking made
+// from /reserve-program.
+func TestReservationsAppearInTheSameStagesAsRegistrations(t *testing.T) {
+	r := setupLeadRouter(t)
+
+	seed := []models.Lead{
+		{Name: "Reservasi", Email: "r@x.id", Phone: "1", Kind: models.KindReservation, Status: models.LeadNew},
+		{Name: "Pendaftaran", Email: "p@x.id", Phone: "2", Kind: models.KindRegistration, Status: models.LeadNew},
+		{Name: "PesertaReservasi", Email: "pr@x.id", Phone: "3", Kind: models.KindReservation, Status: models.LeadEnrolled},
+		{Name: "Konsultasi", Email: "k@x.id", Phone: "4", Kind: models.KindConsultation, Status: models.LeadNew},
+	}
+	for i := range seed {
+		assert.NoError(t, config.DB.Create(&seed[i]).Error)
+	}
+
+	names := func(query string) []string {
+		req, _ := http.NewRequest("GET", "/api/leads"+query, nil)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		assert.Equal(t, 200, w.Code)
+
+		var body struct {
+			Items []models.Lead `json:"items"`
+		}
+		assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+		out := make([]string, 0, len(body.Items))
+		for _, l := range body.Items {
+			out = append(out, l.Name)
+		}
+		return out
+	}
+
+	assert.ElementsMatch(t, []string{"Reservasi", "Pendaftaran"}, names("?stage=permintaan"))
+	assert.ElementsMatch(t, []string{"PesertaReservasi"}, names("?stage=peserta"))
+	assert.ElementsMatch(t, []string{"Konsultasi"}, names("?kind=consultation"))
+}
