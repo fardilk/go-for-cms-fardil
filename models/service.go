@@ -19,6 +19,51 @@ const (
 // ValidTemplates is the allow-list used when validating writes.
 var ValidTemplates = []string{TemplateProgram, TemplateEngagement, TemplateRetainer}
 
+// Section keys the public page knows how to render. A service's Sections list
+// decides which of these appear, in what order, under what heading and on what
+// background — so a new service is arranged in the panel rather than in code.
+const (
+	SectionIntro      = "intro"
+	SectionMetrics    = "metrics"
+	SectionHighlights = "highlights"
+	SectionOutcomes   = "outcomes"
+	SectionSteps      = "steps"
+	SectionSchedules  = "schedules"
+	SectionPlans      = "plans"
+	SectionProofs     = "proofs"
+	SectionFaqs       = "faqs"
+	SectionCta        = "cta"
+)
+
+// ValidSectionKeys is the allow-list for a Sections entry. Anything else would
+// render as nothing on the site, so it is refused at the door instead.
+var ValidSectionKeys = []string{
+	SectionIntro, SectionMetrics, SectionHighlights, SectionOutcomes, SectionSteps,
+	SectionSchedules, SectionPlans, SectionProofs, SectionFaqs, SectionCta,
+}
+
+// ValidSectionTones are the backgrounds a band may take. "auto" alternates with
+// its neighbours, which is what keeps a page from running six white bands in a
+// row; the rest pin a band to one colour.
+var ValidSectionTones = []string{"auto", "white", "muted", "dark"}
+
+// SectionSetting is one band on the public page.
+//
+// Held as JSON on the service rather than its own table: it is a short ordered
+// list that is always read and written whole, never queried across services,
+// and a row per band would buy nothing but joins.
+type SectionSetting struct {
+	Key string `json:"key"`
+	// Heading override. Empty means the template's own wording, so a service
+	// that is happy with the defaults stores nothing.
+	Title    string `json:"title"`
+	Subtitle string `json:"subtitle"`
+	Tone     string `json:"tone"`
+	// A band with content can still be switched off; one without content is
+	// hidden regardless, because there is nothing to show.
+	Enabled bool `json:"enabled"`
+}
+
 // Service is one page under /services/:category/:slug.
 type Service struct {
 	ID       uint   `gorm:"primaryKey" json:"id"`
@@ -51,6 +96,28 @@ type Service struct {
 
 	// Free-text intro rendered above the first repeating group.
 	Intro string `json:"intro"`
+
+	// Which bands the page renders, in order, with their headings and
+	// backgrounds. Empty means "use the template's defaults", which is what
+	// every service created before this existed does.
+	Sections datatypes.JSON `json:"sections"`
+
+	// One line on who the programme suits, shown as the "Cocok untuk" hint on
+	// the catalogue cards and in the booking form's programme picker.
+	Audience string `json:"audience"`
+
+	// Cover for the catalogue card. Falls back to HeroImage, and to drawn
+	// artwork when there is no photograph at all.
+	CardImage string `json:"card_image"`
+
+	// Participant rating. Zero means none is known, and the site shows nothing
+	// rather than a fabricated score.
+	RatingScore float64 `gorm:"not null;default:0" json:"rating_score"`
+	RatingCount int     `gorm:"not null;default:0" json:"rating_count"`
+
+	// Closing call to action. Empty falls back to wording built from the title.
+	CtaTitle    string `json:"cta_title"`
+	CtaSubtitle string `json:"cta_subtitle"`
 
 	Highlights []ServiceHighlight `gorm:"constraint:OnDelete:CASCADE" json:"highlights"`
 	Steps      []ServiceStep      `gorm:"constraint:OnDelete:CASCADE" json:"steps"`

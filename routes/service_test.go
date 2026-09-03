@@ -195,3 +195,66 @@ func TestPatchRejectsEmptyBody(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusBadRequest, do(t, r, "PATCH", "/api/services/1", map[string]interface{}{}).Code)
 }
+
+// A layout the site cannot render must be refused at the door. Accepted, the
+// band would silently not appear and the editor would be left looking for a
+// section they had just configured.
+func TestSectionLayoutIsValidated(t *testing.T) {
+	r := setupServiceRouter(t)
+
+	base := func() map[string]interface{} {
+		return map[string]interface{}{
+			"slug": "leadership", "category": "training",
+			"title": "Leadership", "template": "program",
+		}
+	}
+
+	bad := []struct {
+		name     string
+		sections []map[string]interface{}
+	}{
+		{"unknown key", []map[string]interface{}{{"key": "gallery", "enabled": true}}},
+		{"unknown tone", []map[string]interface{}{{"key": "faqs", "tone": "neon", "enabled": true}}},
+		{"duplicate key", []map[string]interface{}{
+			{"key": "faqs", "enabled": true},
+			{"key": "faqs", "enabled": false},
+		}},
+	}
+	for _, tc := range bad {
+		t.Run(tc.name, func(t *testing.T) {
+			payload := base()
+			payload["sections"] = tc.sections
+			assert.Equal(t, http.StatusBadRequest, do(t, r, "POST", "/api/services", payload).Code)
+		})
+	}
+
+	// The arrangement the panel actually posts, and the empty case every
+	// service created before this feature existed still sends.
+	ok := base()
+	ok["sections"] = []map[string]interface{}{
+		{"key": "intro", "tone": "auto", "enabled": true},
+		{"key": "proofs", "title": "Kata Alumni", "tone": "muted", "enabled": true},
+		{"key": "faqs", "tone": "auto", "enabled": false},
+	}
+	assert.Equal(t, http.StatusCreated, do(t, r, "POST", "/api/services", ok).Code)
+}
+
+func TestRatingIsBounded(t *testing.T) {
+	r := setupServiceRouter(t)
+	payload := map[string]interface{}{
+		"slug": "sales", "category": "training",
+		"title": "Sales", "template": "program",
+		"rating_score": 7.4,
+	}
+	assert.Equal(t, http.StatusBadRequest, do(t, r, "POST", "/api/services", payload).Code)
+
+	payload["rating_score"] = 4.8
+	payload["rating_count"] = 96
+	w := do(t, r, "POST", "/api/services", payload)
+	assert.Equal(t, http.StatusCreated, w.Code)
+
+	var saved models.Service
+	assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &saved))
+	assert.Equal(t, 4.8, saved.RatingScore)
+	assert.Equal(t, 96, saved.RatingCount)
+}

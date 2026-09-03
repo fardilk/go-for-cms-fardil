@@ -1,12 +1,14 @@
 package routes
 
 import (
+	"encoding/json"
 	"net/http"
 	"slices"
 
 	"github.com/fardilk/cms-porto-fardil/config"
 	"github.com/fardilk/cms-porto-fardil/models"
 	"github.com/gin-gonic/gin"
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -166,6 +168,47 @@ func validateService(s *models.Service) (string, bool) {
 	}
 	if !slices.Contains(models.ValidTemplates, s.Template) {
 		return "template must be one of: program, engagement, retainer", false
+	}
+	if msg, ok := validateSections(s.Sections); !ok {
+		return msg, false
+	}
+	if s.RatingScore < 0 || s.RatingScore > 5 {
+		return "rating_score must be between 0 and 5", false
+	}
+	if s.RatingCount < 0 {
+		return "rating_count cannot be negative", false
+	}
+	return "", true
+}
+
+// validateSections refuses a layout the site cannot render.
+//
+// An unknown key or tone would not error anywhere: the page would simply skip
+// the band, and the editor would be left staring at a section they configured
+// and cannot see. Failing the write says so immediately.
+func validateSections(raw datatypes.JSON) (string, bool) {
+	if len(raw) == 0 {
+		return "", true
+	}
+
+	var sections []models.SectionSetting
+	if err := json.Unmarshal(raw, &sections); err != nil {
+		return "sections must be a list of {key, title, subtitle, tone, enabled}", false
+	}
+
+	seen := map[string]bool{}
+	for _, section := range sections {
+		if !slices.Contains(models.ValidSectionKeys, section.Key) {
+			return "unknown section key: " + section.Key, false
+		}
+		if seen[section.Key] {
+			return "section listed twice: " + section.Key, false
+		}
+		seen[section.Key] = true
+
+		if section.Tone != "" && !slices.Contains(models.ValidSectionTones, section.Tone) {
+			return "unknown tone for " + section.Key + ": " + section.Tone, false
+		}
 	}
 	return "", true
 }
