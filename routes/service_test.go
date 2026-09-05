@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -23,14 +24,16 @@ func setupServiceRouter(t *testing.T) *gin.Engine {
 	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
 	assert.NoError(t, err)
 	assert.NoError(t, db.Migrator().DropTable(
-		&models.Service{}, &models.ServiceHighlight{}, &models.ServiceStep{},
-		&models.ServiceOutcome{}, &models.ServiceMetric{}, &models.ServiceFaq{},
-		&models.ServicePlan{}, &models.ServiceProof{}, &models.ServiceSchedule{},
+		&models.Service{}, &models.ServiceHighlight{}, &models.ServiceReason{},
+		&models.ServiceStep{}, &models.ServiceOutcome{}, &models.ServiceMetric{},
+		&models.ServiceFaq{}, &models.ServicePlan{}, &models.ServiceProof{},
+		&models.ServiceSchedule{},
 	))
 	assert.NoError(t, db.AutoMigrate(
-		&models.Service{}, &models.ServiceHighlight{}, &models.ServiceStep{},
-		&models.ServiceOutcome{}, &models.ServiceMetric{}, &models.ServiceFaq{},
-		&models.ServicePlan{}, &models.ServiceProof{}, &models.ServiceSchedule{},
+		&models.Service{}, &models.ServiceHighlight{}, &models.ServiceReason{},
+		&models.ServiceStep{}, &models.ServiceOutcome{}, &models.ServiceMetric{},
+		&models.ServiceFaq{}, &models.ServicePlan{}, &models.ServiceProof{},
+		&models.ServiceSchedule{},
 	))
 	config.DB = db
 
@@ -257,4 +260,45 @@ func TestRatingIsBounded(t *testing.T) {
 	assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &saved))
 	assert.Equal(t, 4.8, saved.RatingScore)
 	assert.Equal(t, 96, saved.RatingCount)
+}
+
+// Reasons are the "why certify at all" blocks. They replace children wholesale
+// like every other group, and the section key has to be accepted by the layout
+// validator or the band could never be arranged.
+func TestReasonsRoundTripAndAreArrangeable(t *testing.T) {
+	r := setupServiceRouter(t)
+
+	payload := map[string]interface{}{
+		"slug": "sertifikasi-trainer-bnsp", "category": "training",
+		"title": "Sertifikasi Trainer BNSP", "template": "program",
+		"sections": []map[string]interface{}{
+			{"key": "reasons", "title": "Kenapa Harus Tersertifikasi?", "tone": "muted", "enabled": true},
+		},
+		"reasons": []map[string]interface{}{
+			{
+				"position": 0, "icon": "fa-chart-line", "stat": "47%",
+				"title": "Naik jenjang karier", "source": "Dari 3.340 responden",
+				"body":      "Melaporkan kenaikan jenjang dalam 24 bulan setelah tersertifikasi.",
+				"link_href": "/blog/sertifikasi-dan-karier", "link_text": "Baca selengkapnya",
+			},
+		},
+	}
+
+	w := do(t, r, "POST", "/api/services", payload)
+	assert.Equal(t, http.StatusCreated, w.Code)
+
+	var created models.Service
+	assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &created))
+	assert.Len(t, created.Reasons, 1)
+	assert.Equal(t, "47%", created.Reasons[0].Stat)
+	assert.Equal(t, "/blog/sertifikasi-dan-karier", created.Reasons[0].LinkHref)
+
+	// A removed reason must actually disappear, not linger from the old row.
+	payload["reasons"] = []map[string]interface{}{}
+	assert.Equal(t, http.StatusOK,
+		do(t, r, "PUT", "/api/services/"+strconv.Itoa(int(created.ID)), payload).Code)
+
+	var reasons []models.ServiceReason
+	assert.NoError(t, config.DB.Where("service_id = ?", created.ID).Find(&reasons).Error)
+	assert.Empty(t, reasons)
 }

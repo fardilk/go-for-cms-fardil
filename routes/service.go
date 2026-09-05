@@ -18,6 +18,7 @@ func withServiceChildren(tx *gorm.DB) *gorm.DB {
 	order := func(db *gorm.DB) *gorm.DB { return db.Order("position ASC") }
 	return tx.
 		Preload("Highlights", order).
+		Preload("Reasons", order).
 		Preload("Steps", order).
 		Preload("Outcomes", order).
 		Preload("Metrics", order).
@@ -147,7 +148,7 @@ func DeleteService(c *gin.Context) {
 
 func deleteServiceChildren(tx *gorm.DB, serviceID uint) error {
 	children := []interface{}{
-		&models.ServiceHighlight{}, &models.ServiceStep{}, &models.ServiceOutcome{},
+		&models.ServiceHighlight{}, &models.ServiceReason{}, &models.ServiceStep{}, &models.ServiceOutcome{},
 		&models.ServiceMetric{}, &models.ServiceFaq{}, &models.ServicePlan{},
 		&models.ServiceProof{}, &models.ServiceSchedule{},
 	}

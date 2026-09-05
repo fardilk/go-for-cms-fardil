@@ -26,6 +26,7 @@ const (
 	SectionIntro      = "intro"
 	SectionMetrics    = "metrics"
 	SectionHighlights = "highlights"
+	SectionReasons    = "reasons"
 	SectionOutcomes   = "outcomes"
 	SectionSteps      = "steps"
 	SectionSchedules  = "schedules"
@@ -38,7 +39,7 @@ const (
 // ValidSectionKeys is the allow-list for a Sections entry. Anything else would
 // render as nothing on the site, so it is refused at the door instead.
 var ValidSectionKeys = []string{
-	SectionIntro, SectionMetrics, SectionHighlights, SectionOutcomes, SectionSteps,
+	SectionIntro, SectionMetrics, SectionHighlights, SectionReasons, SectionOutcomes, SectionSteps,
 	SectionSchedules, SectionPlans, SectionProofs, SectionFaqs, SectionCta,
 }
 
@@ -120,6 +121,7 @@ type Service struct {
 	CtaSubtitle string `json:"cta_subtitle"`
 
 	Highlights []ServiceHighlight `gorm:"constraint:OnDelete:CASCADE" json:"highlights"`
+	Reasons    []ServiceReason    `gorm:"constraint:OnDelete:CASCADE" json:"reasons"`
 	Steps      []ServiceStep      `gorm:"constraint:OnDelete:CASCADE" json:"steps"`
 	Outcomes   []ServiceOutcome   `gorm:"constraint:OnDelete:CASCADE" json:"outcomes"`
 	Metrics    []ServiceMetric    `gorm:"constraint:OnDelete:CASCADE" json:"metrics"`
@@ -141,6 +143,28 @@ type ServiceHighlight struct {
 	Icon      string `json:"icon"`
 	Title     string `json:"title"`
 	Body      string `json:"body"`
+}
+
+// ServiceReason is one argument for taking the programme at all, made with a
+// figure rather than an adjective: "47% reported a career advance", and under
+// it where that number comes from.
+//
+// Link points at the write-up behind the claim. A figure a reader cannot chase
+// is just a boast, so the block only shows its button when there is somewhere
+// for it to go - a CMS article at /blog/<slug>, or an outside source.
+type ServiceReason struct {
+	ID        uint   `gorm:"primaryKey" json:"id"`
+	ServiceID uint   `gorm:"not null;index" json:"service_id"`
+	Position  int    `gorm:"not null;default:0" json:"position"`
+	Icon      string `json:"icon"`
+	// The figure itself, shown large: "47%", "20% lebih tinggi".
+	Stat  string `json:"stat"`
+	Title string `json:"title"`
+	Body  string `json:"body"`
+	// Where the figure came from: "Dari 3.340 responden".
+	Source   string `json:"source"`
+	LinkHref string `json:"link_href"`
+	LinkText string `json:"link_text"`
 }
 
 // ServiceStep is a curriculum module, a delivery phase or an SLA stage. Meta

@@ -26,6 +26,7 @@ func main() {
 		&models.MediaAsset{},
 		&models.Service{},
 		&models.ServiceHighlight{},
+		&models.ServiceReason{},
 		&models.ServiceStep{},
 		&models.ServiceOutcome{},
 		&models.ServiceMetric{},
